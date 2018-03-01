@@ -141,7 +141,7 @@ func getDEKFromKMSPlugin(pluginMock *base64Plugin) ([]byte, error) {
 	select {
 	case e := <-pluginMock.encryptRequest:
 		return e.Plain, nil
-	case <-time.After(1 * time.Microsecond):
+	case <-time.After(100 * time.Millisecond):
 		return nil, fmt.Errorf("timed-out while getting encryption request from KMS Plugin Mock")
 	}
 }

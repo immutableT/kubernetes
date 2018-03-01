@@ -87,6 +87,7 @@ go_library(
         "//test/integration/framework:go_default_library",
         "//vendor/github.com/coreos/etcd/clientv3:go_default_library",
         "//vendor/github.com/ghodss/yaml:go_default_library",
+        "//vendor/github.com/golang/glog:go_default_library",
         "//vendor/golang.org/x/sys/unix:go_default_library",
         "//vendor/google.golang.org/grpc:go_default_library",
         "//vendor/k8s.io/api/core/v1:go_default_library",
