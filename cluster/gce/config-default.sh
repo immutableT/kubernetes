@@ -194,9 +194,29 @@ if [[ ${ENABLE_METADATA_CONCEALMENT:-} == "true" ]]; then
   PROVIDER_VARS="${PROVIDER_VARS:-} ENABLE_METADATA_CONCEALMENT METADATA_CONCEALMENT_NO_FIREWALL"
 fi
 
-# Enable AESGCM encryption of secrets by default.
+
+# TODO: Regex validate KMS_KEY
+# TODO: Validate IAM Permissions (i.e. is GCE Service Account granted encrypt/decrypt privileges).
+KMS_KEY_URI=${KMS_KEY_URI:-}
 ENCRYPTION_PROVIDER_CONFIG="${ENCRYPTION_PROVIDER_CONFIG:-}"
-if [[ -z "${ENCRYPTION_PROVIDER_CONFIG}" ]]; then
+
+# TODO: Handle an error condition where ENCRYPTION_PROVIDER is supplied for AES, but KMS_KEY is also provided - should not happen.
+# TODO: Turn endpoint into a variable
+if [[ -n ${KMS_KEY_URI:-} ]]; then
+    ENCRYPTION_PROVIDER_CONFIG=$(cat << EOM | base64 | tr -d '\r\n'
+kind: EncryptionConfig
+apiVersion: v1
+resources:
+  - resources:
+    - secrets
+    providers:
+    - kms:
+       name: grpc-kms-provider
+       cachesize: 1000
+       endpoint: unix:///var/run/kmsplugin/socket.sock
+EOM
+)
+elif [[ -z "${ENCRYPTION_PROVIDER_CONFIG}" ]]; then
     ENCRYPTION_PROVIDER_CONFIG=$(cat << EOM | base64 | tr -d '\r\n'
 kind: EncryptionConfig
 apiVersion: v1

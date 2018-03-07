@@ -35,7 +35,7 @@ write_files:
       Type=oneshot
       RemainAfterExit=yes
       ExecStartPre=/bin/chmod 544 /home/kubernetes/bin/configure-helper.sh
-      ExecStart=/home/kubernetes/bin/configure-helper.sh
+      ExecStart=/bin/bash -c '/home/kubernetes/bin/configure-helper.sh >>/var/log/configure-helper.log 2>&1'
 
       [Install]
       WantedBy=kubernetes.target

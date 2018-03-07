@@ -17,6 +17,8 @@
 # A library of helper functions and constant for GCI distro
 source "${KUBE_ROOT}/cluster/gce/gci/helper.sh"
 
+set -x
+
 # create-master-instance creates the master instance. If called with
 # an argument, the argument is used as the name to a reserved IP
 # address for the master. (In the case of upgrade/repair, we re-use
@@ -122,6 +124,13 @@ function create-master-instance-internal() {
   disk="${disk},boot=no"
   disk="${disk},auto-delete=no"
 
+  scopes="storage-ro,compute-rw,monitoring,logging-write"
+  if [[ -n "${KMS_KEY_URI:-}" ]]; then
+    scopes="${scopes},https://www.googleapis.com/auth/cloudkms"
+    # TODO: Enable this - for now pre-configure KMS artifacts
+    # create-kek
+  fi
+
   for attempt in $(seq 1 ${retries}); do
     if result=$(${gcloud} compute instances create "${master_name}" \
       --project "${PROJECT}" \
@@ -130,7 +139,7 @@ function create-master-instance-internal() {
       --image-project="${MASTER_IMAGE_PROJECT}" \
       --image "${MASTER_IMAGE}" \
       --tags "${MASTER_TAG}" \
-      --scopes "storage-ro,compute-rw,monitoring,logging-write" \
+      --scopes ${scopes} \
       --metadata-from-file "${metadata}" \
       --disk "${disk}" \
       --boot-disk-size "${MASTER_ROOT_DISK_SIZE}" \
@@ -161,4 +170,54 @@ function get-metadata() {
     --project "${PROJECT}" \
     --zone "${zone}" \
     --command "curl \"http://metadata.google.internal/computeMetadata/v1/instance/attributes/${key}\" -H \"Metadata-Flavor: Google\"" 2>/dev/null
+}
+
+function create-kek() {
+  if [[ -z ${KMS_PROJECT:-} ]]; then
+        KMS_PROJECT=${PROJECT}
+  fi
+
+  # TODO: Wrap kms related calls in retry.
+  # It is safe to call this when the API is already enabled.
+  ${gcloud} services enable cloudkms.googleapis.com --project "${KMS_PROJECT}"
+
+  if [[ $? -ne 0 ]]; then
+      echo "Failed to enable CloudKMS API on ${KMS_PROJECT}" >&2
+      exit 1
+  fi
+
+  # TODO: Should UUID type of names be used here to avoid collisions?
+  result=$(${gcloud} kms keyrings create ${KMS_KEY_RING} --location ${KMS_LOCATION} --project ${KMS_PROJECT} 2>&1)
+  if [[ -n ${result} && ${result} != *"already exists"* ]]; then
+      echo "Failed to create key-ring ${KMS_KEY_RING} in ${KMS_PROJECT}" >&2
+      exit 1
+  fi
+
+  result=$(${gcloud} kms keyrings create ${KMS_KEY_RING} --location ${KMS_LOCATION} --project ${KMS_PROJECT} 2>&1)
+  if [[ -n ${result} && ${result} != *"already exists"* ]]; then
+      echo "Failed to create key-ring ${KMS_KEY_RING} in ${KMS_PROJECT}" >&2
+      exit 1
+  fi
+
+  result=$(${gcloud} kms keys create ${KMS_KEY} --keyring ${KMS_KEY_RING} --location ${KMS_LOCATION} --purpose encryption --project ${KMS_PROJECT} 2>&1)
+  if [[ -n ${result} && ${result} != *"already exists"* ]]; then
+      echo "Failed to create key ${KMS_KEY} in ${KMS_KEY_RING}" >&2
+      exit 1
+  fi
+
+  # TODO: Add Error Checking
+  kms_project_number=$(${gcloud} projects describe ${KMS_PROJECT} --format "value(projectNumber)")
+  gce_default_service_account="${kms_project_number}-compute@developer.gserviceaccount.com"
+
+  ${gcloud} kms keys add-iam-policy-binding ${KMS_KEY} \
+    --location ${KMS_LOCATION} \
+    --keyring ${KMS_KEY_RING} \
+    --member serviceAccount:${gce_default_service_account} \
+    --role roles/cloudkms.cryptoKeyEncrypterDecrypter \
+    --project ${KMS_PROJECT}
+
+  if [[ $? -ne 0 ]]; then
+      echo "Failed to grant Encrypt/Decrypt IAM permissions on key ${KMS_KEY} to ${gce_default_service_account}" >&2
+      exit 1
+  fi
 }

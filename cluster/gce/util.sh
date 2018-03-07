@@ -176,7 +176,7 @@ function copy-to-staging() {
   local -r hash=$4
   local -r basename_tar=$(basename ${tar})
 
-  #check whether this tar alread exists and has the same hash
+  #check whether this tar already exists and has the same hash
   #if it matches, then don't bother uploading it again
 
   #remote_tar_md5 checks the remote location for the existing tarball and its md5
@@ -840,6 +840,7 @@ ETCD_CA_KEY: $(yaml-quote ${ETCD_CA_KEY_BASE64:-})
 ETCD_CA_CERT: $(yaml-quote ${ETCD_CA_CERT_BASE64:-})
 ETCD_PEER_KEY: $(yaml-quote ${ETCD_PEER_KEY_BASE64:-})
 ETCD_PEER_CERT: $(yaml-quote ${ETCD_PEER_CERT_BASE64:-})
+KMS_KEY_URI: $(yaml-quote ${KMS_KEY_URI:-})
 ENCRYPTION_PROVIDER_CONFIG: $(yaml-quote ${ENCRYPTION_PROVIDER_CONFIG:-})
 EOF
     if [[ "${ENABLE_TOKENREQUEST:-}" == "true" ]]; then

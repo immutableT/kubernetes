@@ -53,6 +53,7 @@ pkg_tar(
         "manifests/glbc.manifest",
         "manifests/kube-addon-manager.yaml",
         "manifests/kube-apiserver.manifest",
+        "manifests/kms-plugin-container.manifest",
         "manifests/kube-controller-manager.manifest",
         "manifests/kube-proxy.manifest",
         "manifests/kube-scheduler.manifest",

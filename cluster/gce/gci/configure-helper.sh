@@ -24,6 +24,7 @@
 set -o errexit
 set -o nounset
 set -o pipefail
+set -x
 
 readonly UUID_MNT_PREFIX="/mnt/disks/by-uuid/google-local-ssds"
 readonly UUID_BLOCK_PREFIX="/dev/disk/by-uuid/google-local-ssds"
@@ -1680,7 +1681,7 @@ function start-kube-apiserver {
   fi
 
   if [[ -n "${ENCRYPTION_PROVIDER_CONFIG:-}" ]]; then
-    local encryption_provider_config_path="/etc/srv/kubernetes/encryption-provider-config.yml"
+    local encryption_provider_config_path="/etc/srv/kubernetes/encryption-provider-config.yaml"
     echo "${ENCRYPTION_PROVIDER_CONFIG}" | base64 --decode > "${encryption_provider_config_path}"
     params+=" --experimental-encryption-provider-config=${encryption_provider_config_path}"
   fi
@@ -1714,6 +1715,61 @@ function start-kube-apiserver {
   sed -i -e "s@{{admission_controller_config_volume}}@${admission_controller_config_volume}@g" "${src_file}"
   sed -i -e "s@{{image_policy_webhook_config_mount}}@${image_policy_webhook_config_mount}@g" "${src_file}"
   sed -i -e "s@{{image_policy_webhook_config_volume}}@${image_policy_webhook_config_volume}@g" "${src_file}"
+
+  if [[ -z ${KMS_KEY_URI:-} ]]; then
+    # Removing KMS related placeholders.
+    sed -i -e " {
+        s@{{kms_plugin_container}}@@
+
+        s@{{kms_socket_mount}}@@
+        s@{{encryption_provider_mount}}@@
+
+        s@{{kms_socket_volume}}@@
+        s@{{encryption_provider_volume}}@@
+    } " "${src_file}"
+  else
+    local kms_plugin_src_file="${src_dir}/kms-plugin-container.manifest"
+
+    if [[ ! -f ${kms_plugin_src_file} ]]; then
+        echo "Error: KMS Integration was requested, but KMS Plugin Container template yaml is missing."
+        exit 1
+    fi
+
+    if [[ ! -f ${encryption_provider_config_path} ]]; then
+        echo "Error: KMS Integration was requested, but encryption config file is missing."
+        exit 1
+    fi
+
+    # TODO: Validate that the encryption config is for KMS.
+
+    local kms_socket_dir="/var/run/kmsplugin"
+
+    # kms_socket_mnt is used by both kms_plugin and kube-apiserver - this is how these containers talk.
+    local kms_socket_mnt="{ \"name\": \"kmssocket\", \"mountPath\": \"${kms_socket_dir}\", \"readOnly\": false}"
+
+    local kms_socket_vol="{ \"name\": \"kmssocket\", \"hostPath\": {\"path\": \"${kms_socket_dir}\", \"type\": \"DirectoryOrCreate\"}}"
+    local kms_path_to_socket="${kms_socket_dir}/socket.sock"
+
+    local encryption_provider_mnt="{ \"name\": \"encryptionconfig\", \"mountPath\": \"${encryption_provider_config_path}\", \"readOnly\": true}"
+    local encryption_provider_vol="{ \"name\": \"encryptionconfig\", \"hostPath\": {\"path\": \"${encryption_provider_config_path}\", \"type\": \"File\"}}"
+
+    local kms_plugin_container=$(echo $(sed " {
+        s@{{kms_key_uri}}@${KMS_KEY_URI}@
+        s@{{kms_path_to_socket}}@${kms_path_to_socket}@
+        s@{{kms_socket_mount}}@${kms_socket_mnt}@
+    } " ${kms_plugin_src_file}) | tr "\n" "\\n")
+
+    sed -i -e " {
+        s@{{kms_plugin_container}}@${kms_plugin_container},@
+
+        s@{{kms_socket_mount}}@${kms_socket_mnt},@
+        s@{{encryption_provider_mount}}@${encryption_provider_mnt},@
+
+        s@{{kms_socket_volume}}@${kms_socket_vol},@
+        s@{{encryption_provider_volume}}@${encryption_provider_vol},@
+    } " "${src_file}"
+  fi
+
   cp "${src_file}" /etc/kubernetes/manifests
 }
 
