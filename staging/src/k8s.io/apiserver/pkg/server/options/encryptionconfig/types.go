@@ -47,6 +47,8 @@ type ProviderConfig struct {
 	Identity *IdentityConfig `json:"identity,omitempty"`
 	// kms contains the name, cache size and path to configuration file for a KMS based envelope transformer.
 	KMS *KMSConfig `json:"kms,omitempty"`
+
+	CMSEnvelop *CMSEnvelopeConfig `json:"cms,omitempty"`
 }
 
 // AESConfig contains the API configuration for an AES transformer.
@@ -83,4 +85,9 @@ type KMSConfig struct {
 	CacheSize int `json:"cachesize,omitempty"`
 	// the gRPC server listening address, for example "unix:///var/run/kms-provider.sock".
 	Endpoint string `json:"endpoint"`
+}
+
+type CMSEnvelopeConfig struct{
+	// name is the name of the CMS plugin to be used.
+	Name string `json:"name"`
 }

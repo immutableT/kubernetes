@@ -32,6 +32,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/kubernetes/pkg/apis/core"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apiserver/pkg/server/options/encryptionconfig"
 	"k8s.io/apiserver/pkg/storage/storagebackend"
@@ -40,11 +41,15 @@ import (
 	kubeapiservertesting "k8s.io/kubernetes/cmd/kube-apiserver/app/testing"
 	"k8s.io/kubernetes/test/integration"
 	"k8s.io/kubernetes/test/integration/framework"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"encoding/base64"
+	"k8s.io/kubernetes/pkg/apis/core/install"
 )
 
 const (
 	secretKey                = "api_key"
-	secretVal                = "086a7ffc-0225-11e8-ba89-0ed5f89f718b"
+	secretVal                = "my-secret-api-key-value"
 	encryptionConfigFileName = "encryption.conf"
 	testNamespace            = "secret-encryption-test"
 	testSecret               = "test-secret"
@@ -62,13 +67,18 @@ type transformTest struct {
 	restClient        *kubernetes.Clientset
 	ns                *corev1.Namespace
 	secret            *corev1.Secret
+	decoder           runtime.Decoder
 }
 
 func newTransformTest(l kubeapiservertesting.Logger, transformerConfigYAML string) (*transformTest, error) {
+	scheme := runtime.NewScheme()
+	install.Install(scheme)
+
 	e := transformTest{
 		logger:            l,
 		transformerConfig: transformerConfigYAML,
 		storageConfig:     framework.SharedEtcd(),
+		decoder:           serializer.NewCodecFactory(scheme).UniversalDecoder(),
 	}
 
 	var err error
@@ -160,6 +170,14 @@ func (e *transformTest) getRawSecretFromETCD() ([]byte, error) {
 		return nil, fmt.Errorf("failed to read %s from etcd: %v", secretETCDPath, err)
 	}
 	return etcdResponse.Kvs[0].Value, nil
+}
+
+func (e *transformTest) decodeSecret(rawSecret []byte) (*core.Secret, error) {
+	secret, err := runtime.Decode(e.decoder, rawSecret)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode secret: %v", err)
+	}
+	return secret.(*core.Secret), nil
 }
 
 func (e *transformTest) getEncryptionOptions() []string {
@@ -258,6 +276,17 @@ func (e *transformTest) printMetrics() error {
 
 	return nil
 }
+
+func DecodeFrom64(in []byte) ([]byte, error) {
+	buf := make([]byte, base64.StdEncoding.DecodedLen(len(in)))
+	n, err := base64.StdEncoding.Decode(buf, in)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode %s, error:%v", in, err)
+	}
+
+	return buf[:n], nil
+}
+
 
 func contains(s []string, e string) bool {
 	for _, a := range s {

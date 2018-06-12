@@ -9,6 +9,7 @@ load(
 go_library(
     name = "go_default_library",
     srcs = [
+        "cmsEnvelop.go",
         "envelope.go",
         "grpc_service.go",
     ],

@@ -169,6 +169,19 @@ func GetPrefixTransformers(config *ResourceConfig) ([]value.PrefixTransformer, e
 			found = true
 		}
 
+		if provider.CMSEnvelop != nil {
+			if found == true {
+				return nil, fmt.Errorf("more than one provider specified in a single element, should split into different list elements")
+			}
+
+			transformer = value.PrefixTransformer{
+				Transformer: envelope.NewCMSEnvelope(),
+				Prefix: []byte{},
+			}
+
+			found = true
+		}
+
 		if err != nil {
 			return result, err
 		}

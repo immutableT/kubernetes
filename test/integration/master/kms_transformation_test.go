@@ -32,6 +32,7 @@ import (
 	aestransformer "k8s.io/apiserver/pkg/storage/value/encrypt/aes"
 
 	kmsapi "k8s.io/apiserver/pkg/storage/value/encrypt/envelope/v1beta1"
+	"github.com/golang/glog"
 )
 
 const (
@@ -49,6 +50,17 @@ resources:
        name: grpc-kms-provider
        cachesize: 1000
        endpoint: unix:///tmp/kms-provider.sock
+`
+
+	cmsConfigYAML = `
+kind: EncryptionConfig
+apiVersion: v1
+resources:
+  - resources:
+    - secrets
+    providers:
+    - cms:
+       name: cms-provider
 `
 )
 
@@ -70,6 +82,36 @@ func (r rawDEKKEKSecret) getStartOfPayload() int {
 
 func (r rawDEKKEKSecret) getPayload() []byte {
 	return r[r.getStartOfPayload():]
+}
+
+
+func TestKMSIdentity(t *testing.T) {
+	test, err := newTransformTest(t, identityConfigYAML)
+	if err != nil {
+		t.Fatalf("failed to start KUBE API Server with encryptionConfig\n %s, error: %v", identityConfigYAML, err)
+	}
+	defer test.cleanUp()
+
+	secretETCDPath := test.getETCDPath()
+	var rawSecretAsSeenByETCD rawDEKKEKSecret
+	rawSecretAsSeenByETCD, err = test.getRawSecretFromETCD()
+	if err != nil {
+		t.Fatalf("failed to read %s from etcd: %v", secretETCDPath, err)
+	}
+
+	s, err := test.decodeSecret(rawSecretAsSeenByETCD)
+	if err != nil {
+		t.Fatalf("failed to decode secret %s, error %v", secretETCDPath, err)
+	}
+	t.Logf("%s", s.Data)
+}
+
+func TestKMSCMSProvider(t *testing.T) {
+	test, err := newTransformTest(t, cmsConfigYAML)
+	if err != nil {
+		t.Fatalf("failed to start KUBE API Server with encryptionConfig\n %s, error: %v", cmsConfigYAML, err)
+	}
+	defer test.cleanUp()
 }
 
 // TestKMSProvider is an integration test between KubAPI, ETCD and KMS Plugin
@@ -108,6 +150,18 @@ func TestKMSProvider(t *testing.T) {
 		t.Fatalf("failed to read %s from etcd: %v", secretETCDPath, err)
 	}
 
+	prefixLen := len("k8s:enc:kms:v1:grpc-kms-provider:")
+	base64Decoded, err := DecodeFrom64(rawSecretAsSeenByETCD[prefixLen:])
+	if err != nil {
+		t.Fatalf("failed to base64 decode, %v", err)
+	}
+	decodedSecret, err := test.decodeSecret(base64Decoded)
+	if err != nil {
+		t.Fatalf("Failed to decode %s, error %v", rawSecretAsSeenByETCD, err)
+	}
+
+	t.Logf("Decoded secret: %v", decodedSecret)
+
 	if !bytes.HasPrefix(rawSecretAsSeenByETCD, []byte(kmsPrefix)) {
 		t.Fatalf("expected secret to be prefixed with %s, but got %s", kmsPrefix, rawSecretAsSeenByETCD)
 	}
@@ -144,7 +198,8 @@ func TestKMSProvider(t *testing.T) {
 	if secretVal != string(s.Data[secretKey]) {
 		t.Fatalf("expected %s from KubeAPI, but got %s", secretVal, string(s.Data[secretKey]))
 	}
-	test.printMetrics()
+	glog.Infof("%+v", s)
+	// test.printMetrics()
 }
 
 func getDEKFromKMSPlugin(pluginMock *base64Plugin) ([]byte, error) {
