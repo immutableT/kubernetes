@@ -112,6 +112,13 @@ func TestKMSCMSProvider(t *testing.T) {
 		t.Fatalf("failed to start KUBE API Server with encryptionConfig\n %s, error: %v", cmsConfigYAML, err)
 	}
 	defer test.cleanUp()
+
+	s, err := test.restClient.CoreV1().Secrets(testNamespace).Get(testSecret, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	glog.Infof("%+v", s)
+
 }
 
 // TestKMSProvider is an integration test between KubAPI, ETCD and KMS Plugin

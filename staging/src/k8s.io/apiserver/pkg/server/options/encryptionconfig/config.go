@@ -40,6 +40,7 @@ const (
 	aesGCMTransformerPrefixV1    = "k8s:enc:aesgcm:v1:"
 	secretboxTransformerPrefixV1 = "k8s:enc:secretbox:v1:"
 	kmsTransformerPrefixV1       = "k8s:enc:kms:v1:"
+	cmsTransformerPrefixV1       = "k8s:enc:cms:v1:"
 )
 
 // GetTransformerOverrides returns the transformer overrides by reading and parsing the encryption provider configuration file
@@ -176,7 +177,7 @@ func GetPrefixTransformers(config *ResourceConfig) ([]value.PrefixTransformer, e
 
 			transformer = value.PrefixTransformer{
 				Transformer: envelope.NewCMSEnvelope(),
-				Prefix: []byte{},
+				Prefix: []byte(cmsTransformerPrefixV1),
 			}
 
 			found = true
