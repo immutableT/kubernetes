@@ -31,8 +31,12 @@ import (
 	"k8s.io/apiserver/pkg/storage/value"
 	aestransformer "k8s.io/apiserver/pkg/storage/value/encrypt/aes"
 
+	corev1 "k8s.io/api/core/v1"
+
 	kmsapi "k8s.io/apiserver/pkg/storage/value/encrypt/envelope/v1beta1"
 	"github.com/golang/glog"
+	"encoding/base64"
+	"io"
 )
 
 const (
@@ -63,6 +67,19 @@ resources:
        name: cms-provider
 `
 )
+
+var testCMSEnvelope = mustBase64Decode( "" +
+	"MIIB3wYJKoZIhvcNAQcDoIIB0DCCAcwCAQAxggGHMIIBgwIBADBrMF4xCzAJBgNV" +
+	"BAYTAlVTMQswCQYDVQQIDAJXQTEQMA4GA1UEBwwHU2VhdHRsZTEPMA0GA1UEAwwG" +
+	"YWxleHRjMR8wHQYJKoZIhvcNAQkBFhBhbGV4dGNAZ21haWwuY29tAgkAxmd0JJr0" +
+	"dsIwDQYJKoZIhvcNAQEBBQAEggEAkpiv2n0CwteSdOtcUkcWXNn2w3qp1CUo8Ksj" +
+	"MmZ+Fml7YcPQl2MQypRX0rFyfGNsBfn2wRcZnwk6JZYkkCJ4haTeQVEOxzKpzlZa" +
+	"7PuyXg+KMU+es0wOoKOnLaUV2BCHhDQc0wC+qklv/ZPQ1tidHKUpr3CFgWC44R2K" +
+	"5XodxhxqW/oO6dXc8s+VggJdIgjLHUEafWMd0WEJ9Ac+2SGVb4ZAEoKjUgHXMuTp" +
+	"AU5xN9zbfC3pvb+g8YpOqU+tRmUJ4FrCOZcTwrd1xUruotT8pJqSldykmkyUi4CS" +
+	"j7cbwd8JBdanYko1imWk8mX4e7xo0NcW/YqiVlEYU7wdhttauTA8BgkqhkiG9w0B" +
+	"BwEwHQYJYIZIAWUDBAEqBBAUFIGyv27ciPO+5nKXQ0mSgBDw2RCXMEuC6NiUMAyg" +
+	"L0CN")
 
 // rawDEKKEKSecret provides operations for working with secrets transformed with Data Encryption Key(DEK) Key Encryption Kye(KEK) envelop.
 type rawDEKKEKSecret []byte
@@ -113,12 +130,26 @@ func TestKMSCMSProvider(t *testing.T) {
 	}
 	defer test.cleanUp()
 
-	s, err := test.restClient.CoreV1().Secrets(testNamespace).Get(testSecret, metav1.GetOptions{})
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-secret",
+			Namespace: test.ns.Name,
+		},
+		Data: map[string][]byte{
+			"my-api-key": []byte(testCMSEnvelope),
+		},
+	}
+
+	if _, err := test.restClient.CoreV1().Secrets(secret.Namespace).Create(secret); err != nil {
+		t.Fatalf("error while writing secret: %v", err)
+	}
+
+	s, err := test.restClient.CoreV1().Secrets(test.ns.Name).Get("my-secret", metav1.GetOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	glog.Infof("%+v", s)
-
+	glog.Infof("%s", s.Data["my-api-key"])
 }
 
 // TestKMSProvider is an integration test between KubAPI, ETCD and KMS Plugin
@@ -234,4 +265,15 @@ func decryptPayload(key []byte, secret rawDEKKEKSecret, secretETCDPath string) (
 	}
 
 	return plainSecret, nil
+}
+
+func mustBase64Decode(b64 string) []byte {
+	decoder := base64.NewDecoder(base64.StdEncoding, strings.NewReader(b64))
+	buf := new(bytes.Buffer)
+
+	if _, err := io.Copy(buf, decoder); err != nil {
+		panic(err)
+	}
+
+	return buf.Bytes()
 }

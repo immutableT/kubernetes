@@ -100,9 +100,9 @@ func newTransformTest(l kubeapiservertesting.Logger, transformerConfigYAML strin
 		return nil, err
 	}
 
-	if e.secret, err = e.createSecret(testSecret, e.ns.Name); err != nil {
-		return nil, err
-	}
+	//if e.secret, err = e.createSecret(testSecret, e.ns.Name); err != nil {
+	//	return nil, err
+	//}
 
 	return &e, nil
 }

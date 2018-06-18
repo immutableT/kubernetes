@@ -176,7 +176,7 @@ func GetPrefixTransformers(config *ResourceConfig) ([]value.PrefixTransformer, e
 			}
 
 			transformer = value.PrefixTransformer{
-				Transformer: envelope.NewCMSEnvelope(),
+				Transformer: envelope.NewCMSTransformer(),
 				Prefix: []byte(cmsTransformerPrefixV1),
 			}
 
