@@ -68,6 +68,9 @@ resources:
 `
 )
 
+
+// openssl cms -encrypt -in plain.txt -aes256 -out ${OUT_FILE} ${CERT_FILE}
+// openssl cms -in ${OUT_FILE} -cmsout -outform PEM
 var testCMSEnvelope = mustBase64Decode( "" +
 	"MIIB3wYJKoZIhvcNAQcDoIIB0DCCAcwCAQAxggGHMIIBgwIBADBrMF4xCzAJBgNV" +
 	"BAYTAlVTMQswCQYDVQQIDAJXQTEQMA4GA1UEBwwHU2VhdHRsZTEPMA0GA1UEAwwG" +
@@ -80,6 +83,8 @@ var testCMSEnvelope = mustBase64Decode( "" +
 	"j7cbwd8JBdanYko1imWk8mX4e7xo0NcW/YqiVlEYU7wdhttauTA8BgkqhkiG9w0B" +
 	"BwEwHQYJYIZIAWUDBAEqBBAUFIGyv27ciPO+5nKXQ0mSgBDw2RCXMEuC6NiUMAyg" +
 	"L0CN")
+
+// var testCMSEnvelope = "Hello CMS."
 
 // rawDEKKEKSecret provides operations for working with secrets transformed with Data Encryption Key(DEK) Key Encryption Kye(KEK) envelop.
 type rawDEKKEKSecret []byte
@@ -150,6 +155,10 @@ func TestKMSCMSProvider(t *testing.T) {
 	}
 	glog.Infof("%+v", s)
 	glog.Infof("%s", s.Data["my-api-key"])
+
+	if string(s.Data["my-api-key"]) != "Hello CMS." {
+		t.Fatalf("got %s, want %s", s.Data["my-api-key"], "Hello CMS.")
+	}
 }
 
 // TestKMSProvider is an integration test between KubAPI, ETCD and KMS Plugin
