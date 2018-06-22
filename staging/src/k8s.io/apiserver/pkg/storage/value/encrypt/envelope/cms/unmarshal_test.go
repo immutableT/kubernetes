@@ -40,6 +40,8 @@ var (
 		91, 81, 103, 129, 167, 171, 49, 149, 157, 252, 192, 207, 202, 64, 7, 132,
 		96, 186, 94, 23, 59, 49, 8, 241, 199, 168, 138, 107, 7, 245, 13, 73}
 
+	// openssl cms -in cmsEnvelope.txt -cmsout -print
+	// penssl asn1parse -in msg.pem
 	encryptedDEK = []byte{
 		0x61, 0x5e, 0x6e, 0xb1, 0x55, 0x93, 0x3d, 0x20,0x7f, 0x25, 0x42, 0xe3, 0x21, 0x11, 0x82,
 		0x2e, 0x99, 0x4d, 0xff, 0x76, 0x88, 0x60, 0x52, 0xf6, 0x0c, 0x61, 0x68, 0x6b, 0x21, 0x97,
@@ -60,6 +62,9 @@ var (
 		0x76, 0xbd, 0x34, 0x70, 0x86, 0xfa, 0x2c, 0x08, 0x6e, 0xa5, 0x29, 0xc4, 0xe6, 0x54, 0xc5,
 		0x6c,
 	}
+
+	encryptedData = []byte{
+		0xA7, 0x4C, 0x93, 0xD3, 0x45, 0xD8, 0x6D, 0x60, 0xC9, 0xD2, 0xBE, 0xBF, 0xA4, 0xDA, 0x48, 0xA4}
 	// IV used in testCMSEnvelope
 	iv = []byte{20, 20, 129, 178, 191, 110, 220, 136, 243, 190, 230, 114, 151, 67, 73, 146}
 
@@ -67,6 +72,18 @@ var (
 
 	kms = NewAsymmetricKMS()
 )
+
+func TestUnMarshalCertificateSN(t *testing.T) {
+	e, err := unmarshal(referenceEnvelope)
+	if err != nil {
+		t.Fatalf("failed to deserialize, err: %v", err)
+	}
+
+	r := e.recipient(cert.SerialNumber)
+	if r.RecipientIdentifier.SerialNumber.Cmp(cert.SerialNumber) != 0 {
+		t.Fatalf("got %v, wat %v", r.RecipientIdentifier.SerialNumber, cert.SerialNumber)
+	}
+}
 
 func TestUnMarshalKeyEncryptionAlg(t *testing.T) {
 	e, err := unmarshal(referenceEnvelope)
@@ -111,3 +128,4 @@ func TestUnMarshalData(t *testing.T) {
 		t.Fatalf("got %v, want %v", gotData, data)
 	}
 }
+
