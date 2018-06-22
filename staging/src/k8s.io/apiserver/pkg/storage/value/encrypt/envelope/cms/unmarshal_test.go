@@ -85,6 +85,17 @@ func TestUnMarshalCertificateSN(t *testing.T) {
 	}
 }
 
+func TestDataEncryptionAlg(t *testing.T) {
+	e, err := unmarshal(referenceEnvelope)
+	if err != nil {
+		t.Fatalf("failed to deserialize, err: %v", err)
+	}
+
+	if ! e.Content.EncryptedContentInfo.ContentEncryptionAlgorithm.Algorithm.Equal(oidEncryptionAlgorithmAES256CBC) {
+		t.Fatalf("got %v, want %v", e.Content.EncryptedContentInfo.ContentEncryptionAlgorithm.Algorithm, oidEncryptionAlgorithmAES256CBC)
+	}
+}
+
 func TestUnMarshalKeyEncryptionAlg(t *testing.T) {
 	e, err := unmarshal(referenceEnvelope)
 	if err != nil {
