@@ -92,7 +92,7 @@ func (e *Transformer) TransformToStorage(data []byte, context value.Context) ([]
 }
 
 func (e *Transformer) UnWrapEnvelop(rawEnvelop []byte) ([]byte, error) {
-	cmsEnvelope, err := ParseEnvelope(rawEnvelop)
+	cmsEnvelope, err := unmarshal(rawEnvelop)
 	if err != nil {
 		return nil, err
 	}

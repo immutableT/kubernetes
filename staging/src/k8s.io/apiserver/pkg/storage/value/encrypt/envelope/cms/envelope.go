@@ -31,7 +31,7 @@ type Envelope struct {
 	Content     EnvelopedData `asn1:"explicit,tag:0"`
 }
 
-func ParseEnvelope(der []byte) (Envelope, error) {
+func unmarshal(der []byte) (Envelope, error) {
 	var e Envelope
 	var rest []byte
 	var err error
