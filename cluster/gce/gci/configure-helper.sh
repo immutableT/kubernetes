@@ -1444,6 +1444,10 @@ function prepare-mounter-rootfs {
   cp /etc/resolv.conf "${CONTAINERIZED_MOUNTER_ROOTFS}/etc/"
 }
 
+err_report() {
+    echo "Error on line $1"
+}
+
 # Starts kubernetes apiserver.
 # It prepares the log file, loads the docker image, calculates variables, sets them
 # in the manifest file, and then copies the manifest file to /etc/kubernetes/manifests.
@@ -1454,7 +1458,8 @@ function prepare-mounter-rootfs {
 #   CLOUD_CONFIG_MOUNT
 #   DOCKER_REGISTRY
 function start-kube-apiserver {
-  echo "Start kubernetes api-server"
+  # echo "Start kubernetes api-server"
+  # trap 'err_report $LINENO' ERR
   prepare-log-file "${KUBE_API_SERVER_LOG_PATH:-/var/log/kube-apiserver.log}"
   prepare-log-file "${KUBE_API_SERVER_AUDIT_LOG_PATH:-/var/log/kube-apiserver-audit.log}"
 
@@ -1751,26 +1756,27 @@ function start-kube-apiserver {
     container_env="\"env\":[{${container_env}}],"
   fi
 
-  if [[ -n "${ETCD_KMS_KEY_ID:-}" ]]; then
-    ENCRYPTION_PROVIDER_CONFIG=$(cat << EOM | base64 | tr -d '\r\n'
-kind: EncryptionConfig
-apiVersion: v1
-resources:
-  - resources:
-    - secrets
-    providers:
-    - kms:
-       name: grpc-kms-provider
-       cachesize: 1000
-       endpoint: unix:///var/run/kmsplugin/socket.sock
-EOM
-)
-  fi
-
   if [[ -n "${ENCRYPTION_PROVIDER_CONFIG:-}" ]]; then
+    # trap "set +x; sleep 7; set -x" DEBUG
     ENCRYPTION_PROVIDER_CONFIG_PATH="${ENCRYPTION_PROVIDER_CONFIG_PATH:-/etc/srv/kubernetes/encryption-provider-config.yml}"
     echo "${ENCRYPTION_PROVIDER_CONFIG}" | base64 --decode > "${ENCRYPTION_PROVIDER_CONFIG_PATH}"
+
     params+=" --experimental-encryption-provider-config=${ENCRYPTION_PROVIDER_CONFIG_PATH}"
+
+    # KMS key is stored on the line that follows "-kms:"
+    #    kind: EncryptionConfig
+    #    apiVersion: v1
+    #    resources:
+    #      - resources:
+    #        - secrets
+    #        providers:
+    #        - kms:
+    #           name: projects/cloud-project/locations/global/keyRings/kms-keys/cryptoKeys/my-key
+    #           endpoint: unix:///var/run/kmsplugin/socket.sock
+
+    # "|| true" is there to prevent grep (when no match is found) from raising an error and exiting the script (we are running with set -e).
+    # sed -n '/^\s\+- kms:$/{n;p}' returns next line after "- kms", and grep extracts the KMS key.
+    ETCD_KMS_KEY_ID=$(sed -n '/^\s\+- kms:$/{n;p}' "${ENCRYPTION_PROVIDER_CONFIG_PATH}" | grep -Eo "projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[-a-zA-Z0-9_]+$") || true
   fi
 
   src_file="${src_dir}/kube-apiserver.manifest"
@@ -1819,12 +1825,12 @@ EOM
 
     if [[ ! -f "${kms_plugin_src_file}" ]]; then
       echo "Error: KMS Integration was requested, but "${kms_plugin_src_file}" is missing."
-      exit 1
+      # exit 1
     fi
 
     if [[ ! -f "${ENCRYPTION_PROVIDER_CONFIG_PATH}" ]]; then
       echo "Error: KMS Integration was requested, but "${ENCRYPTION_PROVIDER_CONFIG_PATH}" is missing."
-      exit 1
+      # exit 1
     fi
 
     # TODO: Validate that the encryption config is for KMS.
@@ -2629,6 +2635,53 @@ spec:
 EOF
 }
 
+# etcd-encrypted retrieves default-token-xxxx secret. Since the trailing characters are randomly generated per cluster, need an etcd range query.
+# etcd's JSON API requires arguments to be b64 encoded, so
+# "L3JlZ2lzdHJ5L3NlY3JldHMva3ViZS1zeXN0ZW0vZGVmYXVsdC10b2tlbi0=" is base64 encoded "/registry/secrets/kube-system/default-token-"
+# "L3JlZ2lzdHJ5L3NlY3JldHMva3ViZS1zeXN0ZW0vZGVmYXVsdC10b2tlbi4=" is base64 encoded "/registry/secrets/kube-system/default-token."
+# Since "." follows "-" in ASCII, this creates an etcd range query where everything that starts with /registry/secrets/kube-system/default-token- will be retrieved.
+# Docs: https://coreos.com/etcd/docs/latest/dev-guide/api_grpc_gateway.html
+function etcd-encrypted() {
+    # TODO This will break on etcd 3.4 since it uses v3beta
+    # https://github.com/coreos/etcd/blob/master/Documentation/dev-guide/api_grpc_gateway.md
+    local default_token=$(curl -L http://127.0.0.1:${ETCD_PORT:-2379}/${ETCD_API_VER:-v3alpha}/kv/range -X POST -d \
+      '{"key": "L3JlZ2lzdHJ5L3NlY3JldHMva3ViZS1zeXN0ZW0vZGVmYXVsdC10b2tlbi0=", "range_end": "L3JlZ2lzdHJ5L3NlY3JldHMva3ViZS1zeXN0ZW0vZGVmYXVsdC10b2tlbi4="}')
+
+    if grep -Po "\"value\":\"\K([A-Za-z0-9+/=]+)\"\}" <<< "${default_token}}" | base64 --decode -i | grep -ao "k8s:enc:kms:v1:"; then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
+function apply-encryption-config() {
+    if [[ -z "${ETCD_KMS_KEY_ID}" ]]; then
+        return
+    fi
+
+    # need kube-apiserver to be ready to check for etcd's encryption status
+    until kubectl get secret
+    do
+        sleep 10
+    done
+
+    local decryption_requested="false"
+    if grep "- identity: {}" "${ENCRYPTION_PROVIDER_CONFIG_PATH}"; then
+        decryption_requested="true"
+    fi
+
+    local encrypted=$(etcd-encrypted)
+
+    # First scenario: Master (that was previously encrypted) was updated with disable-database-encryption flag - need to decrypt etcd
+    # Second scenario: Master (that was not previously encrypted) was updated with database-encryption-key-name=foo - need to encrypt etcd
+    if [[ ("${encrypted}" == "true" && "${decryption_requested}" == "true")  || \
+          ("${encrypted}" == "false" && "${decryption_requested}" == "false") ]]; then
+        # forces all secrets to be re-written to etcd, and in the process either encrypting or decrypting them
+        # https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/
+        kubectl get secrets --all-namespaces -o json | kubectl replace -f -
+    fi
+}
+
 ########### Main Function ###########
 function main() {
   echo "Start to configure instance for kubernetes"
@@ -2709,6 +2762,7 @@ function main() {
     start-cluster-autoscaler
     start-lb-controller
     start-rescheduler
+    apply-encryption-config &
   else
     if [[ "${KUBE_PROXY_DAEMONSET:-}" != "true" ]]; then
       start-kube-proxy

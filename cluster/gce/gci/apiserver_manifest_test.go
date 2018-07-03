@@ -17,7 +17,6 @@ limitations under the License.
 package gci
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -35,6 +34,8 @@ const (
 	   executes new variables are created. ManifestTestCase does not care where a variable came from. However, future
 	   test scenarios, may require such a distinction.
 	   The list of variables is, by no means, complete - this is what is required to run currently defined tests.
+
+
 	*/
 	deployHelperEnv = `
 readonly KUBE_HOME={{.KubeHome}}
@@ -55,8 +56,34 @@ readonly LOG_OWNER_USER=$(whoami)
 readonly LOG_OWNER_GROUP=$(id -gn)
 ENCRYPTION_PROVIDER_CONFIG={{.EncryptionProviderConfig}}
 ENCRYPTION_PROVIDER_CONFIG_PATH={{.EncryptionProviderConfigPath}}
-readonly ETCD_KMS_KEY_ID={{.ETCDKMSKeyID}}
 `
+	/*
+		   encryptionProviderConfigForKMS is base64 encoded yaml below
+		   apiVersion: v1
+			resources:
+			  - resources:
+			    - secrets
+			    providers:
+			    - kms:
+			       name: projects/cloud-project/locations/global/keyRings/my-keys/cryptoKeys/my-key
+			       cachesize: 1000
+			       endpoint: unix:///var/run/kmsplugin/socket.sock`
+
+	*/
+	encryptionProviderConfigForKMS = "a2luZDogRW5jcnlwdGlvbkNvbmZpZwphcGlWZXJzaW9uOiB2MQpyZXNvdXJjZXM6CiAgLSByZXNvdXJjZXM6CiAgICAtIHNlY3JldHMKICAgIHByb3ZpZGVyczoKICAgIC0ga21zOgogICAgICAgbmFtZTogcHJvamVjdHMvY2xvdWQtcHJvamVjdC9sb2NhdGlvbnMvZ2xvYmFsL2tleVJpbmdzL215LWtleXMvY3J5cHRvS2V5cy9teS1rZXkKICAgICAgIGNhY2hlc2l6ZTogMTAwMAogICAgICAgZW5kcG9pbnQ6IHVuaXg6Ly8vdmFyL3J1bi9rbXNwbHVnaW4vc29ja2V0LnNvY2sK"
+
+	/*
+		    encryptionProviderConfigIdentityOnly is base64 encoded yaml below
+			kind: EncryptionConfig
+				apiVersion: v1
+				resources:
+				  - resources:
+					- secrets
+					providers:
+					- identity: {}
+	*/
+	encryptionProviderConfigIdentityOnly = "a2luZDogRW5jcnlwdGlvbkNvbmZpZwphcGlWZXJzaW9uOiB2MQpyZXNvdXJjZXM6CiAgLSByZXNvdXJjZXM6CiAgICAtIHNlY3JldHMKICAgIHByb3ZpZGVyczoKICAgIC0gaWRlbnRpdHk6IHt9CgoK"
+
 	kubeAPIServerManifestFileName = "kube-apiserver.manifest"
 	kmsPluginManifestFileName     = "kms-plugin-container.manifest"
 	kubeAPIServerStartFuncName    = "start-kube-apiserver"
@@ -78,9 +105,8 @@ readonly ETCD_KMS_KEY_ID={{.ETCDKMSKeyID}}
 
 type kubeAPIServerEnv struct {
 	KubeHome                     string
-	EncryptionProviderConfig     string
 	EncryptionProviderConfigPath string
-	ETCDKMSKeyID                 string
+	EncryptionProviderConfig     string
 }
 
 type kubeAPIServerManifestTestCase struct {
@@ -124,8 +150,8 @@ func TestEncryptionProviderFlag(t *testing.T) {
 
 	e := kubeAPIServerEnv{
 		KubeHome:                     c.kubeHome,
-		EncryptionProviderConfig:     base64.StdEncoding.EncodeToString([]byte("FOO")),
 		EncryptionProviderConfigPath: filepath.Join(c.kubeHome, "encryption-provider-config.yaml"),
+		EncryptionProviderConfig:     encryptionProviderConfigForKMS,
 	}
 
 	c.invokeTest(e)
@@ -144,8 +170,8 @@ func TestEncryptionProviderConfig(t *testing.T) {
 	p := filepath.Join(c.kubeHome, "encryption-provider-config.yaml")
 	e := kubeAPIServerEnv{
 		KubeHome:                     c.kubeHome,
-		EncryptionProviderConfig:     base64.StdEncoding.EncodeToString([]byte("FOO")),
 		EncryptionProviderConfigPath: p,
+		EncryptionProviderConfig:     encryptionProviderConfigForKMS,
 	}
 
 	c.mustInvokeFunc(deployHelperEnv, e)
@@ -164,7 +190,7 @@ func TestKMSEncryptionProviderConfig(t *testing.T) {
 	e := kubeAPIServerEnv{
 		KubeHome:                     c.kubeHome,
 		EncryptionProviderConfigPath: filepath.Join(c.kubeHome, "encryption-provider-config.yaml"),
-		ETCDKMSKeyID:                 "FOO",
+		EncryptionProviderConfig:     encryptionProviderConfigForKMS,
 	}
 
 	c.invokeTest(e)
@@ -185,8 +211,8 @@ func TestKMSEncryptionProviderConfig(t *testing.T) {
 		c.t.Fatalf("Failed to read encryption provider config %s", p)
 	}
 
-	if !strings.Contains(string(d), "name: grpc-kms-provider") {
-		c.t.Fatalf("Got %s\n, wanted encryption provider config to be of type grpc-kms", string(d))
+	if !strings.Contains(string(d), "name: projects/cloud-project/locations/global/keyRings/my-keys/cryptoKeys/my-key") {
+		c.t.Fatalf("Got %s\n, wanted encryption provider config to be of type name: projects/cloud-project/locations/global/keyRings/my-keys/cryptoKeys/my-key", string(d))
 	}
 }
 
@@ -197,7 +223,7 @@ func TestKMSPluginAndAPIServerSharedVolume(t *testing.T) {
 	var e = kubeAPIServerEnv{
 		KubeHome:                     c.kubeHome,
 		EncryptionProviderConfigPath: filepath.Join(c.kubeHome, "encryption-provider-config.yaml"),
-		ETCDKMSKeyID:                 "FOO",
+		EncryptionProviderConfig:     encryptionProviderConfigForKMS,
 	}
 
 	c.invokeTest(e)
@@ -208,5 +234,28 @@ func TestKMSPluginAndAPIServerSharedVolume(t *testing.T) {
 	if k != a {
 		t.Fatalf("Got %s!=%s, wanted KMSPlugin VolumeMount #1:%s to be equal to kube-apiserver VolumeMount #0:%s",
 			k, a, k, a)
+	}
+}
+
+// TestKMSContainerRemoval validates that kms related sed anchors in configure-helper.sh are removed when
+// ENCRYPTION_PROVIDER_CONFIG does not define KMS provider.
+func TestKMSContainerRemoval(t *testing.T) {
+	c := newKubeAPIServerManifestTestCase(t)
+	defer c.tearDown()
+
+	var e = kubeAPIServerEnv{
+		KubeHome:                     c.kubeHome,
+		EncryptionProviderConfigPath: filepath.Join(c.kubeHome, "encryption-provider-config.yaml"),
+		EncryptionProviderConfig:     encryptionProviderConfigIdentityOnly,
+	}
+
+	c.invokeTest(e)
+	// By this point, we can ne sure that kube-apiserver manifest is a valid POD.
+	if len(c.pod.Spec.Containers) != 1 {
+		t.Fatalf("got %d, want 1 for number of containers in kube-apiserver pod", len(c.pod.Spec.Containers))
+	}
+
+	if c.pod.Spec.Containers[0].Name != "kube-apiserver" {
+		t.Fatalf("got %s, want kube-apiserver for the name of  container in kube-apiserver pod", c.pod.Spec.Containers[0].Name)
 	}
 }

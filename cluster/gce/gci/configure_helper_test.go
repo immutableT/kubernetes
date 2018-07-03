@@ -123,17 +123,18 @@ func (c *ManifestTestCase) mustCreateEnv(envTemplate string, env interface{}) {
 	}
 }
 
-func (c *ManifestTestCase) mustInvokeFunc(envTemplate string, env interface{}) {
+func (c *ManifestTestCase) mustInvokeFunc(envTemplate string, env interface{}) []byte {
 	c.mustCreateEnv(envTemplate, env)
 	args := fmt.Sprintf("source %s ; source %s --source-only ; %s", c.envScriptPath, configureHelperScriptName, c.manifestFuncName)
 	cmd := exec.Command("bash", "-c", args)
 
-	bs, err := cmd.CombinedOutput()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		c.t.Logf("%s", bs)
+		c.t.Logf("%s", out)
 		c.t.Fatalf("Failed to run configure-helper.sh: %v", err)
 	}
-	c.t.Logf("%s", string(bs))
+	c.t.Logf("%s", string(out))
+	return out
 }
 
 func (c *ManifestTestCase) mustLoadPodFromManifest() {
